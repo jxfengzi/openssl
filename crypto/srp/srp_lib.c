@@ -14,11 +14,17 @@
 # include <openssl/evp.h>
 # include "internal/bn_srp.h"
 
+#define SHA512 1
+
 static BIGNUM *srp_Calc_k(const BIGNUM *N, const BIGNUM *g)
 {
+#if SHA512
+    unsigned char digest[SHA512_DIGEST_LENGTH];
+#else
     /* k = SHA1(N | PAD(g)) -- tls-srp draft 8 */
-
     unsigned char digest[SHA_DIGEST_LENGTH];
+#endif
+
     unsigned char *tmp = NULL;
     EVP_MD_CTX *ctxt = NULL;
     int longg;
@@ -35,9 +41,15 @@ static BIGNUM *srp_Calc_k(const BIGNUM *N, const BIGNUM *g)
         goto err;
     BN_bn2bin(N, tmp);
 
+#if SHA512
+    if (!EVP_DigestInit_ex(ctxt, EVP_sha512(), NULL)
+        || !EVP_DigestUpdate(ctxt, tmp, longN))
+        goto err;
+#else
     if (!EVP_DigestInit_ex(ctxt, EVP_sha1(), NULL)
         || !EVP_DigestUpdate(ctxt, tmp, longN))
         goto err;
+#endif
 
     memset(tmp, 0, longN);
     longg = BN_bn2bin(g, tmp);
@@ -57,10 +69,13 @@ static BIGNUM *srp_Calc_k(const BIGNUM *N, const BIGNUM *g)
 
 BIGNUM *SRP_Calc_u(const BIGNUM *A, const BIGNUM *B, const BIGNUM *N)
 {
-    /* k = SHA1(PAD(A) || PAD(B) ) -- tls-srp draft 8 */
-
     BIGNUM *u = NULL;
+#if SHA512
+    unsigned char cu[SHA512_DIGEST_LENGTH];
+    /* k = SHA1(PAD(A) || PAD(B) ) -- tls-srp draft 8 */
+#else
     unsigned char cu[SHA_DIGEST_LENGTH];
+#endif
     unsigned char *cAB = NULL;
     EVP_MD_CTX *ctxt = NULL;
     int longN;
@@ -80,10 +95,17 @@ BIGNUM *SRP_Calc_u(const BIGNUM *A, const BIGNUM *B, const BIGNUM *N)
 
     memset(cAB, 0, longN);
 
+#if SHA512
+    if (!EVP_DigestInit_ex(ctxt, EVP_sha512(), NULL)
+        || !EVP_DigestUpdate(ctxt, cAB + BN_bn2bin(A, cAB + longN), longN)
+        || !EVP_DigestUpdate(ctxt, cAB + BN_bn2bin(B, cAB + longN), longN))
+        goto err;
+#else
     if (!EVP_DigestInit_ex(ctxt, EVP_sha1(), NULL)
         || !EVP_DigestUpdate(ctxt, cAB + BN_bn2bin(A, cAB + longN), longN)
         || !EVP_DigestUpdate(ctxt, cAB + BN_bn2bin(B, cAB + longN), longN))
         goto err;
+#endif
 
     if (!EVP_DigestFinal_ex(ctxt, cu, NULL))
         goto err;
@@ -156,6 +178,7 @@ BIGNUM *SRP_Calc_B(const BIGNUM *b, const BIGNUM *N, const BIGNUM *g,
         BN_free(B);
         B = NULL;
     }
+
  err:
     BN_CTX_free(bn_ctx);
     BN_clear_free(kv);
@@ -166,7 +189,11 @@ BIGNUM *SRP_Calc_B(const BIGNUM *b, const BIGNUM *N, const BIGNUM *g,
 
 BIGNUM *SRP_Calc_x(const BIGNUM *s, const char *user, const char *pass)
 {
+#if SHA512
+    unsigned char dig[SHA512_DIGEST_LENGTH];
+#else
     unsigned char dig[SHA_DIGEST_LENGTH];
+#endif
     EVP_MD_CTX *ctxt;
     unsigned char *cs = NULL;
     BIGNUM *res = NULL;
@@ -180,6 +207,15 @@ BIGNUM *SRP_Calc_x(const BIGNUM *s, const char *user, const char *pass)
     if ((cs = OPENSSL_malloc(BN_num_bytes(s))) == NULL)
         goto err;
 
+#if SHA512
+    if (!EVP_DigestInit_ex(ctxt, EVP_sha512(), NULL)
+        || !EVP_DigestUpdate(ctxt, user, strlen(user))
+        || !EVP_DigestUpdate(ctxt, ":", 1)
+        || !EVP_DigestUpdate(ctxt, pass, strlen(pass))
+        || !EVP_DigestFinal_ex(ctxt, dig, NULL)
+        || !EVP_DigestInit_ex(ctxt, EVP_sha512(), NULL))
+        goto err;
+#else
     if (!EVP_DigestInit_ex(ctxt, EVP_sha1(), NULL)
         || !EVP_DigestUpdate(ctxt, user, strlen(user))
         || !EVP_DigestUpdate(ctxt, ":", 1)
@@ -187,6 +223,8 @@ BIGNUM *SRP_Calc_x(const BIGNUM *s, const char *user, const char *pass)
         || !EVP_DigestFinal_ex(ctxt, dig, NULL)
         || !EVP_DigestInit_ex(ctxt, EVP_sha1(), NULL))
         goto err;
+#endif
+
     BN_bn2bin(s, cs);
     if (!EVP_DigestUpdate(ctxt, cs, BN_num_bytes(s)))
         goto err;
