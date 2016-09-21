@@ -16,7 +16,8 @@
 # include <openssl/rand.h>
 # include <openssl/txt_db.h>
 
-# define SRP_RANDOM_SALT_LEN 20
+//# define SRP_RANDOM_SALT_LEN 20
+# define SRP_RANDOM_SALT_LEN 16
 # define MAX_LEN 2500
 
 static char b64table[] =
